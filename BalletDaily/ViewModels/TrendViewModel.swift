@@ -54,11 +54,23 @@ class TrendViewModel: ObservableObject {
         
         switch timeRange {
         case .week:
-            return calendar.date(byAdding: .day, value: -7, to: now) ?? now
+            // 本周：周一到周日
+            let weekday = calendar.component(.weekday, from: now)
+            // weekday: 1=周日, 2=周一, ..., 7=周六
+            // 转换为：1=周一, 7=周日
+            let daysFromMonday = (weekday == 1) ? 6 : (weekday - 2)
+            return calendar.date(byAdding: .day, value: -daysFromMonday, to: calendar.startOfDay(for: now)) ?? now
+            
         case .month:
-            return calendar.date(byAdding: .month, value: -1, to: now) ?? now
+            // 本月：1号到月底
+            let components = calendar.dateComponents([.year, .month], from: now)
+            return calendar.date(from: components) ?? now
+            
         case .year:
-            return calendar.date(byAdding: .year, value: -1, to: now) ?? now
+            // 本年：1月1号到12月31号
+            let components = calendar.dateComponents([.year], from: now)
+            return calendar.date(from: components) ?? now
+            
         case .custom:
             return customStartDate
         }
@@ -70,7 +82,38 @@ class TrendViewModel: ObservableObject {
             return customEndDate
         }
         
-        return timeRange == .custom ? customEndDate : Date()
+        let calendar = Calendar.current
+        let now = Date()
+        
+        switch timeRange {
+        case .week:
+            // 本周：周一到周日，结束日期是周日的23:59:59
+            let weekday = calendar.component(.weekday, from: now)
+            let daysToSunday = (weekday == 1) ? 0 : (8 - weekday)
+            let sunday = calendar.date(byAdding: .day, value: daysToSunday, to: calendar.startOfDay(for: now)) ?? now
+            return calendar.date(byAdding: .day, value: 1, to: sunday)?.addingTimeInterval(-1) ?? now
+            
+        case .month:
+            // 本月：月底的23:59:59
+            let components = calendar.dateComponents([.year, .month], from: now)
+            guard let firstDayOfMonth = calendar.date(from: components),
+                  let firstDayOfNextMonth = calendar.date(byAdding: .month, value: 1, to: firstDayOfMonth) else {
+                return now
+            }
+            return firstDayOfNextMonth.addingTimeInterval(-1)
+            
+        case .year:
+            // 本年：12月31号23:59:59
+            let components = calendar.dateComponents([.year], from: now)
+            guard let firstDayOfYear = calendar.date(from: components),
+                  let firstDayOfNextYear = calendar.date(byAdding: .year, value: 1, to: firstDayOfYear) else {
+                return now
+            }
+            return firstDayOfNextYear.addingTimeInterval(-1)
+            
+        case .custom:
+            return customEndDate
+        }
     }
     
     // MARK: - Initialization

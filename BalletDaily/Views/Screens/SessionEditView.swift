@@ -177,7 +177,19 @@ struct SessionEditView: View {
             Section("课程信息") {
                 // 课程名称
                 VStack(alignment: .leading, spacing: 8) {
-                    TextField("课程名称", text: $viewModel.name)
+                    HStack {
+                        TextField("课程名称", text: $viewModel.name)
+                        
+                        if !viewModel.name.isEmpty {
+                            Button {
+                                viewModel.name = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                     
                     if !viewModel.nameSuggestions.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -202,7 +214,19 @@ struct SessionEditView: View {
                 
                 // 老师
                 VStack(alignment: .leading, spacing: 8) {
-                    TextField("老师", text: $viewModel.instructor)
+                    HStack {
+                        TextField("老师", text: $viewModel.instructor)
+                        
+                        if !viewModel.instructor.isEmpty {
+                            Button {
+                                viewModel.instructor = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                     
                     if !viewModel.instructorSuggestions.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -225,11 +249,35 @@ struct SessionEditView: View {
                     }
                 }
                 
-                // 地点（可选）
-                TextField("地点（可选）", text: $viewModel.location)
+                // 地点
+                HStack {
+                    TextField("地点", text: $viewModel.location)
+                    
+                    if !viewModel.location.isEmpty {
+                        Button {
+                            viewModel.location = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
                 
-                // 机构（可选）
-                TextField("机构（可选）", text: $viewModel.organization)
+                // 机构
+                HStack {
+                    TextField("机构", text: $viewModel.organization)
+                    
+                    if !viewModel.organization.isEmpty {
+                        Button {
+                            viewModel.organization = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
         }
     }
@@ -306,6 +354,7 @@ class SessionEditViewModel: ObservableObject {
             self.name = session.name ?? ""
             self.instructor = session.instructor ?? ""
             self.location = session.location ?? ""
+            self.organization = session.organization ?? ""
         } else {
             // 创建模式
             let newSession = BalletSession(context: context)
@@ -321,6 +370,7 @@ class SessionEditViewModel: ObservableObject {
             self.name = ""
             self.instructor = ""
             self.location = ""
+            self.organization = ""
         }
     }
     
@@ -336,6 +386,7 @@ class SessionEditViewModel: ObservableObject {
         session.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         session.instructor = instructor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : instructor.trimmingCharacters(in: .whitespacesAndNewlines)
         session.location = location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : location.trimmingCharacters(in: .whitespacesAndNewlines)
+        session.organization = organization.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : organization.trimmingCharacters(in: .whitespacesAndNewlines)
         session.updatedAt = Date()
         
         do {
@@ -347,6 +398,9 @@ class SessionEditViewModel: ObservableObject {
             }
             if let instructor = session.instructor {
                 tagService.recordTag(type: TagType.instructor.rawValue, value: instructor)
+            }
+            if let location = session.location {
+                tagService.recordTag(type: TagType.location.rawValue, value: location)
             }
             
             isLoading = false

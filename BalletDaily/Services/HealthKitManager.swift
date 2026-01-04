@@ -29,7 +29,10 @@ class HealthKitManager: ObservableObject {
     
     init() {
         checkHealthKitAvailability()
-        checkAuthorizationStatus()
+        // 延迟检查授权状态，确保应用完全启动
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.checkAuthorizationStatus()
+        }
     }
     
     // MARK: - Authorization
@@ -46,32 +49,67 @@ class HealthKitManager: ObservableObject {
     /// 检查授权状态
     func checkAuthorizationStatus() {
         guard HKHealthStore.isHealthDataAvailable() else {
-            isAuthorized = false
+            DispatchQueue.main.async { [weak self] in
+                self?.isAuthorized = false
+            }
             return
         }
         
-        // 检查所有需要的数据类型的授权状态
-        let typesToCheck: [HKObjectType] = [
-            HKObjectType.workoutType(),
-            HKObjectType.quantityType(forIdentifier: .heartRate)!,
-            HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)!
-        ]
+        // 检查 workout 类型的授权状态
+        // 注意：对于 workout 类型，authorizationStatus 会返回 .notDetermined
+        // 即使用户已经授权。我们需要实际查询一次数据来确认
+        let workoutType = HKObjectType.workoutType()
+        let status = healthStore.authorizationStatus(for: workoutType)
         
-        // 如果任何一个类型已授权，就认为已授权
-        let hasAuthorization = typesToCheck.contains { type in
-            healthStore.authorizationStatus(for: type) == .sharingAuthorized
+        print("🔍 HealthKit 授权状态检查: \(status.rawValue)")
+        
+        // 对于 workout 类型，如果不是明确拒绝，我们尝试查询来确认授权
+        if status == .sharingDenied {
+            DispatchQueue.main.async { [weak self] in
+                self?.isAuthorized = false
+                print("❌ HealthKit 明确拒绝授权")
+            }
+            return
         }
         
-        DispatchQueue.main.async { [weak self] in
-            self?.isAuthorized = hasAuthorization
-            if hasAuthorization {
-                print("✅ HealthKit 已授权")
+        // 尝试查询一条数据来确认授权状态
+        // 这是唯一可靠的方法来检测读取权限
+        let query = HKSampleQuery(
+            sampleType: workoutType,
+            predicate: nil,
+            limit: 1,
+            sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)]
+        ) { [weak self] _, samples, error in
+            DispatchQueue.main.async {
+                if let error = error as NSError? {
+                    // 检查错误类型
+                    if error.code == HKError.errorAuthorizationNotDetermined.rawValue {
+                        self?.isAuthorized = false
+                        print("ℹ️ HealthKit 未授权 (需要请求权限)")
+                    } else if error.code == HKError.errorAuthorizationDenied.rawValue {
+                        self?.isAuthorized = false
+                        print("❌ HealthKit 授权被拒绝")
+                    } else {
+                        // 其他错误，可能是网络或其他问题，但不一定是授权问题
+                        // 暂时假设未授权，但不记录为错误
+                        self?.isAuthorized = false
+                        print("⚠️ HealthKit 查询失败: \(error.localizedDescription)")
+                    }
+                } else {
+                    // 查询成功（无论是否有数据），说明已授权
+                    self?.isAuthorized = true
+                    print("✅ HealthKit 已授权 (查询成功，找到 \(samples?.count ?? 0) 条记录)")
+                }
             }
         }
+        
+        healthStore.execute(query)
     }
     
     /// 请求 HealthKit 授权
     func requestAuthorization() {
+        print("🔐 开始请求 HealthKit 授权...")
+        
         // 定义需要读取的数据类型
         let typesToRead: Set<HKObjectType> = [
             HKObjectType.workoutType(),                                    // 训练记录
@@ -83,16 +121,21 @@ class HealthKitManager: ObservableObject {
         
         // 请求授权
         healthStore.requestAuthorization(toShare: nil, read: typesToRead) { [weak self] success, error in
-            DispatchQueue.main.async {
-                if success {
-                    // 授权请求完成后，重新检查状态
+            print("📋 HealthKit 授权对话框返回: success=\(success), error=\(String(describing: error))")
+            
+            if let error = error {
+                DispatchQueue.main.async {
+                    self?.isAuthorized = false
+                    self?.errorMessage = error.localizedDescription
+                    print("❌ HealthKit 授权请求失败: \(error.localizedDescription)")
+                }
+            } else {
+                // 注意：success=true 只表示对话框显示成功，不代表用户授权了
+                // 需要延迟一点时间再检查，让系统有时间处理用户的选择
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    print("🔄 授权对话框关闭，重新检查授权状态...")
                     self?.checkAuthorizationStatus()
                     self?.errorMessage = nil
-                    print("✅ HealthKit 授权请求完成")
-                } else {
-                    self?.isAuthorized = false
-                    self?.errorMessage = error?.localizedDescription ?? "授权失败"
-                    print("❌ HealthKit 授权失败: \(error?.localizedDescription ?? "未知错误")")
                 }
             }
         }

@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import Combine
 
 /// 预设标签
 struct PresetTag: Identifiable, Codable, Equatable {
@@ -16,14 +17,16 @@ struct PresetTag: Identifiable, Codable, Equatable {
     var type: String // TagType.rawValue
     var order: Int
     var isEnabled: Bool
+    var isPlaceholder: Bool // 是否为占位符（用户未使用过的虚拟数据）
     
-    init(id: UUID = UUID(), emoji: String, name: String, type: String, order: Int = 0, isEnabled: Bool = true) {
+    init(id: UUID = UUID(), emoji: String, name: String, type: String, order: Int = 0, isEnabled: Bool = true, isPlaceholder: Bool = false) {
         self.id = id
         self.emoji = emoji
         self.name = name
         self.type = type
         self.order = order
         self.isEnabled = isEnabled
+        self.isPlaceholder = isPlaceholder
     }
 }
 
@@ -32,21 +35,173 @@ class PresetTagManager: ObservableObject {
     @Published var presetTags: [PresetTag] = []
     
     private let userDefaultsKey = "PresetTags"
+    private var tagService: TagService?
     
-    init() {
+    init(tagService: TagService? = nil) {
+        self.tagService = tagService
         loadPresetTags()
     }
     
     /// 加载预设标签
     func loadPresetTags() {
+        // 首先尝试从 UserDefaults 加载已有的预设标签
+        var existingTags: [PresetTag] = []
         if let data = UserDefaults.standard.data(forKey: userDefaultsKey),
            let tags = try? JSONDecoder().decode([PresetTag].self, from: data) {
-            presetTags = tags.sorted { $0.order < $1.order }
-        } else {
-            // 初始化默认标签
-            presetTags = defaultPresetTags()
-            savePresetTags()
+            existingTags = tags
         }
+        
+        // 如果有 tagService，从数据库加载用户真实数据并合并
+        if let tagService = tagService {
+            presetTags = mergeWithUserData(existingTags: existingTags, tagService: tagService)
+        } else if !existingTags.isEmpty {
+            // 没有 tagService，但有已保存的标签，直接使用
+            presetTags = existingTags.sorted { $0.order < $1.order }
+        } else {
+            // 都没有，生成初始标签
+            presetTags = generateInitialTags()
+        }
+        
+        savePresetTags()
+    }
+    
+    /// 合并已有预设标签和用户真实数据
+    private func mergeWithUserData(existingTags: [PresetTag], tagService: TagService) -> [PresetTag] {
+        var mergedTags: [PresetTag] = []
+        var order = 0
+        
+        // 获取用户数据库中的标签值
+        let classNames = Set(tagService.getSuggestions(for: TagType.className.rawValue, limit: 50))
+        let instructors = Set(tagService.getSuggestions(for: TagType.instructor.rawValue, limit: 50))
+        let locations = Set(tagService.getSuggestions(for: TagType.location.rawValue, limit: 50))
+        
+        // 处理课程名称标签
+        var processedClassNames = Set<String>()
+        
+        // 保留已有的课程标签（如果在用户数据中存在）
+        for tag in existingTags.filter({ $0.type == TagType.className.rawValue }) {
+            if classNames.contains(tag.name) {
+                var updatedTag = tag
+                updatedTag.order = order
+                updatedTag.isPlaceholder = false // 标记为非占位符
+                mergedTags.append(updatedTag)
+                processedClassNames.insert(tag.name)
+                order += 1
+            }
+        }
+        
+        // 添加新的课程名称（不在已有标签中的）
+        for name in classNames.sorted() {
+            if !processedClassNames.contains(name) {
+                mergedTags.append(PresetTag(
+                    emoji: "",
+                    name: name,
+                    type: TagType.className.rawValue,
+                    order: order,
+                    isPlaceholder: false
+                ))
+                order += 1
+            }
+        }
+        
+        // 处理老师标签
+        var processedInstructors = Set<String>()
+        
+        for tag in existingTags.filter({ $0.type == TagType.instructor.rawValue }) {
+            if instructors.contains(tag.name) {
+                var updatedTag = tag
+                updatedTag.order = order
+                updatedTag.isPlaceholder = false
+                mergedTags.append(updatedTag)
+                processedInstructors.insert(tag.name)
+                order += 1
+            }
+        }
+        
+        for name in instructors.sorted() {
+            if !processedInstructors.contains(name) {
+                mergedTags.append(PresetTag(
+                    emoji: "",
+                    name: name,
+                    type: TagType.instructor.rawValue,
+                    order: order,
+                    isPlaceholder: false
+                ))
+                order += 1
+            }
+        }
+        
+        // 处理地点标签
+        var processedLocations = Set<String>()
+        
+        for tag in existingTags.filter({ $0.type == TagType.location.rawValue }) {
+            if locations.contains(tag.name) {
+                var updatedTag = tag
+                updatedTag.order = order
+                updatedTag.isPlaceholder = false
+                mergedTags.append(updatedTag)
+                processedLocations.insert(tag.name)
+                order += 1
+            }
+        }
+        
+        for name in locations.sorted() {
+            if !processedLocations.contains(name) {
+                mergedTags.append(PresetTag(
+                    emoji: "",
+                    name: name,
+                    type: TagType.location.rawValue,
+                    order: order,
+                    isPlaceholder: false
+                ))
+                order += 1
+            }
+        }
+        
+        // 如果没有任何真实数据，添加占位符
+        if mergedTags.filter({ $0.type == TagType.className.rawValue }).isEmpty {
+            let placeholderClasses = ["芭蕾基础", "芭蕾进阶", "芭蕾表演"]
+            for name in placeholderClasses {
+                mergedTags.append(PresetTag(
+                    emoji: "",
+                    name: name,
+                    type: TagType.className.rawValue,
+                    order: order,
+                    isPlaceholder: true
+                ))
+                order += 1
+            }
+        }
+        
+        if mergedTags.filter({ $0.type == TagType.instructor.rawValue }).isEmpty {
+            let placeholderInstructors = ["张老师", "李老师"]
+            for name in placeholderInstructors {
+                mergedTags.append(PresetTag(
+                    emoji: "",
+                    name: name,
+                    type: TagType.instructor.rawValue,
+                    order: order,
+                    isPlaceholder: true
+                ))
+                order += 1
+            }
+        }
+        
+        if mergedTags.filter({ $0.type == TagType.location.rawValue }).isEmpty {
+            let placeholderLocations = ["舞蹈学院", "舞蹈工作室"]
+            for name in placeholderLocations {
+                mergedTags.append(PresetTag(
+                    emoji: "",
+                    name: name,
+                    type: TagType.location.rawValue,
+                    order: order,
+                    isPlaceholder: true
+                ))
+                order += 1
+            }
+        }
+        
+        return mergedTags
     }
     
     /// 保存预设标签
@@ -65,7 +220,27 @@ class PresetTagManager: ObservableObject {
     /// 更新预设标签
     func updatePresetTag(_ tag: PresetTag) {
         if let index = presetTags.firstIndex(where: { $0.id == tag.id }) {
-            presetTags[index] = tag
+            let oldTag = presetTags[index]
+            var updatedTag = tag
+            
+            // 如果是占位符标签被编辑，将其标记为非占位符
+            if tag.isPlaceholder {
+                updatedTag.isPlaceholder = false
+            }
+            
+            // 如果标签名称发生了变化，执行级联更新
+            if oldTag.name != updatedTag.name, let tagService = tagService {
+                if let tagType = TagType(rawValue: updatedTag.type) {
+                    tagService.updateTagValue(
+                        type: tagType,
+                        oldValue: oldTag.name,
+                        newValue: updatedTag.name
+                    )
+                    print("🔄 级联更新: \"\(oldTag.name)\" → \"\(updatedTag.name)\"")
+                }
+            }
+            
+            presetTags[index] = updatedTag
             savePresetTags()
         }
     }
@@ -92,25 +267,97 @@ class PresetTagManager: ObservableObject {
         savePresetTags()
     }
     
-    /// 默认预设标签
-    private func defaultPresetTags() -> [PresetTag] {
-        return [
-            // 课程名称
-            PresetTag(emoji: "🩰", name: "芭蕾基础", type: TagType.className.rawValue, order: 0),
-            PresetTag(emoji: "💃", name: "芭蕾进阶", type: TagType.className.rawValue, order: 1),
-            PresetTag(emoji: "🎭", name: "芭蕾表演", type: TagType.className.rawValue, order: 2),
-            PresetTag(emoji: "🎨", name: "芭蕾编舞", type: TagType.className.rawValue, order: 3),
-            PresetTag(emoji: "🌟", name: "芭蕾大师课", type: TagType.className.rawValue, order: 4),
+    /// 生成初始标签（优先使用用户真实数据，否则使用占位符）
+    private func generateInitialTags() -> [PresetTag] {
+        var tags: [PresetTag] = []
+        var order = 0
+        
+        // 如果有 tagService，从用户真实数据生成
+        if let tagService = tagService {
+            // 课程名称 - 获取用户最常用的前10个
+            let classNames = tagService.getSuggestions(for: TagType.className.rawValue, limit: 10)
+            for name in classNames {
+                tags.append(PresetTag(
+                    emoji: "",
+                    name: name,
+                    type: TagType.className.rawValue,
+                    order: order,
+                    isPlaceholder: false
+                ))
+                order += 1
+            }
             
-            // 老师
-            PresetTag(emoji: "👨‍🏫", name: "张老师", type: TagType.instructor.rawValue, order: 5),
-            PresetTag(emoji: "👩‍🏫", name: "李老师", type: TagType.instructor.rawValue, order: 6),
+            // 老师 - 获取用户最常用的前10个
+            let instructors = tagService.getSuggestions(for: TagType.instructor.rawValue, limit: 10)
+            for name in instructors {
+                tags.append(PresetTag(
+                    emoji: "",
+                    name: name,
+                    type: TagType.instructor.rawValue,
+                    order: order,
+                    isPlaceholder: false
+                ))
+                order += 1
+            }
             
-            // 地点
-            PresetTag(emoji: "🏛️", name: "北京舞蹈学院", type: TagType.location.rawValue, order: 7),
-            PresetTag(emoji: "🏢", name: "舞蹈工作室", type: TagType.location.rawValue, order: 8),
-            PresetTag(emoji: "🏠", name: "家", type: TagType.location.rawValue, order: 9),
-        ]
+            // 地点 - 获取用户最常用的前10个
+            let locations = tagService.getSuggestions(for: TagType.location.rawValue, limit: 10)
+            for name in locations {
+                tags.append(PresetTag(
+                    emoji: "",
+                    name: name,
+                    type: TagType.location.rawValue,
+                    order: order,
+                    isPlaceholder: false
+                ))
+                order += 1
+            }
+        }
+        
+        // 如果没有真实数据，添加占位符标签（浅色显示）
+        if tags.filter({ $0.type == TagType.className.rawValue }).isEmpty {
+            let placeholderClasses = ["芭蕾基础", "芭蕾进阶", "芭蕾表演"]
+            for name in placeholderClasses {
+                tags.append(PresetTag(
+                    emoji: "",
+                    name: name,
+                    type: TagType.className.rawValue,
+                    order: order,
+                    isPlaceholder: true
+                ))
+                order += 1
+            }
+        }
+        
+        if tags.filter({ $0.type == TagType.instructor.rawValue }).isEmpty {
+            let placeholderInstructors = ["张老师", "李老师"]
+            for name in placeholderInstructors {
+                tags.append(PresetTag(
+                    emoji: "",
+                    name: name,
+                    type: TagType.instructor.rawValue,
+                    order: order,
+                    isPlaceholder: true
+                ))
+                order += 1
+            }
+        }
+        
+        if tags.filter({ $0.type == TagType.location.rawValue }).isEmpty {
+            let placeholderLocations = ["舞蹈学院", "舞蹈工作室"]
+            for name in placeholderLocations {
+                tags.append(PresetTag(
+                    emoji: "",
+                    name: name,
+                    type: TagType.location.rawValue,
+                    order: order,
+                    isPlaceholder: true
+                ))
+                order += 1
+            }
+        }
+        
+        return tags
     }
 }
 

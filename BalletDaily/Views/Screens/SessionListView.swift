@@ -50,10 +50,16 @@ struct SessionListView: View {
             .refreshable {
                 await viewModel.refresh()
             }
-            .sheet(isPresented: $showingAddSession) {
+            .sheet(isPresented: $showingAddSession, onDismiss: {
+                // Sheet 关闭后重新加载数据
+                viewModel.loadSessions()
+            }) {
                 SessionEditView(context: viewContext)
             }
-            .sheet(item: $selectedSession) { session in
+            .sheet(item: $selectedSession, onDismiss: {
+                // Sheet 关闭后重新加载数据
+                viewModel.loadSessions()
+            }) { session in
                 NavigationStack {
                     SessionDetailView(session: session, context: viewContext)
                 }

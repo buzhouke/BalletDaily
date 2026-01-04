@@ -85,7 +85,6 @@ struct DistributionChart: View {
             }
         }
         .frame(height: CGFloat(max(data.count * 50, 150)))
-        .chartXAxisLabel("课程数")
     }
     
     private var emptyChart: some View {

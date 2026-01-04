@@ -92,7 +92,7 @@ struct ContentView: View {
         print("✅ 创建课程: \(session2.name ?? "") - \(session2.instructor ?? "")")
         
         // 2. 查询所有课程
-        let allSessions = service.fetchAllSessions()
+        let allSessions = (try? service.fetchAllSessions()) ?? []
         print("✅ 查询到 \(allSessions.count) 条课程记录")
         
         // 3. 按日期范围查询
@@ -130,7 +130,7 @@ struct ContentView: View {
         
         // 获取或创建一个课程
         var session: BalletSession
-        if let firstSession = sessionService.fetchAllSessions().first {
+        if let firstSession = (try? sessionService.fetchAllSessions())?.first {
             session = firstSession
         } else {
             session = sessionService.createSession(
@@ -419,7 +419,7 @@ struct ContentView: View {
                 
                 // 查询并显示当前数据库中的课程数量
                 let sessionService = SessionService(context: viewContext)
-                let allSessions = sessionService.fetchAllSessions()
+                let allSessions = (try? sessionService.fetchAllSessions()) ?? []
                 let importedSessions = allSessions.filter { !$0.isManualEntry }
                 
                 print("\n" + "-" * 60)
@@ -446,7 +446,7 @@ struct ContentView: View {
         let sessionService = SessionService(context: viewContext)
         
         // 查找有 HealthKit 关联的课程
-        let sessions = sessionService.fetchAllSessions()
+        let sessions = (try? sessionService.fetchAllSessions()) ?? []
         let linkedSessions = sessions.filter { $0.healthKitWorkoutUUID != nil }
         
         if linkedSessions.isEmpty {

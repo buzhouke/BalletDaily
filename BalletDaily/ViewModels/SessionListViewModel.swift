@@ -20,6 +20,7 @@ class SessionListViewModel: ObservableObject {
     
     private let sessionService: SessionService
     private let context: NSManagedObjectContext
+    private var cancellables = Set<AnyCancellable>()
     
     // MARK: - Computed Properties
     
@@ -84,6 +85,45 @@ class SessionListViewModel: ObservableObject {
     init(context: NSManagedObjectContext) {
         self.context = context
         self.sessionService = SessionService(context: context)
+        
+        // 监听 Core Data 的对象变化通知
+        setupNotificationObserver()
+    }
+    
+    deinit {
+        cancellables.removeAll()
+    }
+    
+    // MARK: - Notification Observer
+    
+    /// 设置 Core Data 通知监听
+    private func setupNotificationObserver() {
+        NotificationCenter.default.publisher(for: .NSManagedObjectContextObjectsDidChange, object: context)
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let self = self else { return }
+                
+                // 检查是否有 BalletSession 相关的变化
+                let hasRelevantChanges = self.hasRelevantChanges(in: notification)
+                
+                if hasRelevantChanges {
+                    print("🔄 检测到课程数据变化，自动刷新列表")
+                    self.loadSessions()
+                }
+            }
+            .store(in: &cancellables)
+    }
+    
+    /// 检查通知中是否包含相关的数据变化
+    private func hasRelevantChanges(in notification: Notification) -> Bool {
+        let insertedObjects = notification.userInfo?[NSInsertedObjectsKey] as? Set<NSManagedObject> ?? []
+        let updatedObjects = notification.userInfo?[NSUpdatedObjectsKey] as? Set<NSManagedObject> ?? []
+        let deletedObjects = notification.userInfo?[NSDeletedObjectsKey] as? Set<NSManagedObject> ?? []
+        
+        let allChangedObjects = insertedObjects.union(updatedObjects).union(deletedObjects)
+        
+        // 检查是否有 BalletSession 类型的对象变化
+        return allChangedObjects.contains { $0 is BalletSession }
     }
     
     // MARK: - Data Loading

@@ -39,46 +39,18 @@ struct SettingsView: View {
                     Text("管理课程名称、老师、地点等预设标签，支持自定义 Emoji 图标。")
                 }
                 
-                // HealthKit 同步
+                // 运动数据同步
                 Section {
-                    // 授权状态
-                    HStack {
-                        Text("授权状态")
-                        Spacer()
-                        if healthKitManager.isAuthorized {
-                            Label("已授权", systemImage: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                                .font(.subheadline)
-                        } else {
-                            Label("未授权", systemImage: "xmark.circle.fill")
-                                .foregroundColor(.red)
-                                .font(.subheadline)
-                        }
-                    }
-                    
-                    // 请求权限按钮
-                    if !healthKitManager.isAuthorized {
-                        Button {
-                            healthKitManager.requestAuthorization()
-                        } label: {
-                            Label("请求访问权限", systemImage: "hand.raised.fill")
-                        }
-                    }
-                    
                     // 自动同步开关
-                    if healthKitManager.isAuthorized {
-                        Toggle("自动同步训练记录", isOn: $enableAutoSync)
-                    }
+                    Toggle("自动同步训练记录", isOn: $enableAutoSync)
                     
                     // 同步范围设置
-                    if healthKitManager.isAuthorized {
-                        Picker("同步时间范围", selection: $syncDays) {
-                            Text("最近 30 天").tag(30)
-                            Text("最近 90 天").tag(90)
-                            Text("最近半年").tag(180)
-                            Text("最近一年").tag(365)
-                            Text("所有数据").tag(3650)
-                        }
+                    Picker("同步时间范围", selection: $syncDays) {
+                        Text("最近 30 天").tag(30)
+                        Text("最近 90 天").tag(90)
+                        Text("最近半年").tag(180)
+                        Text("最近一年").tag(365)
+                        Text("所有数据").tag(3650)
                     }
                     
                     // 上次同步时间
@@ -93,40 +65,34 @@ struct SettingsView: View {
                     }
                     
                     // 立即同步按钮
-                    if healthKitManager.isAuthorized {
-                        Button {
-                            performSync()
-                        } label: {
-                            HStack {
-                                if isSyncing {
-                                    ProgressView()
-                                        .scaleEffect(0.8)
-                                } else {
-                                    Image(systemName: "arrow.triangle.2.circlepath")
-                                }
-                                Text(isSyncing ? "同步中..." : "立即同步")
+                    Button {
+                        performSync()
+                    } label: {
+                        HStack {
+                            if isSyncing {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            } else {
+                                Image(systemName: "arrow.triangle.2.circlepath")
                             }
-                        }
-                        .disabled(isSyncing)
-                        
-                        // 同步状态
-                        if !syncStatus.isEmpty {
-                            Text(syncStatus)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                            Text(isSyncing ? "同步中..." : "立即同步")
                         }
                     }
+                    .disabled(isSyncing)
+                    
+                    // 同步状态
+                    if !syncStatus.isEmpty {
+                        Text(syncStatus)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 } header: {
-                    Text("HealthKit 同步")
+                    Text("运动数据同步")
                 } footer: {
-                    if healthKitManager.isAuthorized {
-                        if enableAutoSync {
-                            Text("✅ 自动同步已启用。应用启动时会自动导入新的训练记录。\n🔍 同步范围：\(syncDaysDescription)")
-                        } else {
-                            Text("ℹ️ 自动同步已关闭。请点击「立即同步」手动导入训练记录。")
-                        }
+                    if enableAutoSync {
+                        Text("✅ 自动同步已启用。应用启动时会自动导入新的训练记录。\n🔍 同步范围：\(syncDaysDescription)\n\n💡 需要授权访问「健康」App 中的训练数据。如果同步失败，请前往系统设置授权。")
                     } else {
-                        Text("授权后可以自动导入 Apple Watch 记录的芭蕾训练数据和心率等健康指标。")
+                        Text("ℹ️ 自动同步已关闭。点击「立即同步」可手动导入训练记录。\n\n💡 需要授权访问「健康」App 中的训练数据。")
                     }
                 }
                 
@@ -292,10 +258,36 @@ struct SettingsView: View {
 
             } catch {
                 print("\n❌ 同步失败: \(error.localizedDescription)\n")
+                
+                // 检查是否是权限问题
+                let isAuthError = (error as? HealthKitError) == .notAuthorized ||
+                                 (error as NSError).domain == "com.apple.healthkit" ||
+                                 error.localizedDescription.contains("授权") ||
+                                 error.localizedDescription.contains("权限")
+                
                 await MainActor.run {
                     isSyncing = false
                     syncStatus = "❌ 同步失败"
-                    syncAlertMessage = "同步失败：\(error.localizedDescription)\n\n请检查 HealthKit 权限是否已授予。"
+                    
+                    if isAuthError {
+                        // 权限问题，提供引导
+                        syncAlertMessage = """
+                        需要授权访问「健康」App 中的训练数据才能同步。
+                        
+                        请按以下步骤操作：
+                        1. 打开「设置」App
+                        2. 滚动到「健康」
+                        3. 点击「数据存取与设备」
+                        4. 找到「BalletDaily」
+                        5. 开启「训练」权限
+                        
+                        完成后返回应用重新尝试同步。
+                        """
+                    } else {
+                        // 其他错误
+                        syncAlertMessage = "同步失败：\(error.localizedDescription)\n\n如果问题持续出现，请检查网络连接或联系支持。"
+                    }
+                    
                     showingSyncAlert = true
                 }
             }
@@ -304,8 +296,8 @@ struct SettingsView: View {
     
     /// 检查并自动同步（如果需要）
     private func checkAndAutoSync() {
-        // 只有在启用自动同步且已授权的情况下才执行
-        guard enableAutoSync && healthKitManager.isAuthorized else {
+        // 只有在启用自动同步的情况下才执行
+        guard enableAutoSync else {
             return
         }
         
@@ -320,6 +312,7 @@ struct SettingsView: View {
         
         if shouldSync {
             print("🔄 自动同步触发（距上次同步超过24小时）")
+            // 直接尝试同步，如果没有权限会在同步时友好提示
             performSync()
         }
     }

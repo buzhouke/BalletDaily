@@ -192,6 +192,57 @@ class TagService {
         recordTagUsage(type: type, value: value)
     }
     
+    // MARK: - Update
+    
+    /// 更新标签值（级联更新所有使用该标签的地方）
+    /// - Parameters:
+    ///   - type: 标签类型
+    ///   - oldValue: 旧的标签值
+    ///   - newValue: 新的标签值
+    func updateTagValue(type: TagType, oldValue: String, newValue: String) {
+        guard !oldValue.isEmpty && !newValue.isEmpty && oldValue != newValue else { return }
+        
+        // 1. 更新 FrequentTag
+        if let tag = fetchTag(type: type, value: oldValue) {
+            tag.value = newValue
+            tag.lastUsedAt = Date()
+        }
+        
+        // 2. 更新所有 BalletSession 中使用该标签的记录
+        let sessionFetchRequest: NSFetchRequest<BalletSession> = BalletSession.fetchRequest()
+        
+        switch type {
+        case .className:
+            sessionFetchRequest.predicate = NSPredicate(format: "name == %@", oldValue)
+        case .instructor:
+            sessionFetchRequest.predicate = NSPredicate(format: "instructor == %@", oldValue)
+        case .location:
+            sessionFetchRequest.predicate = NSPredicate(format: "location == %@", oldValue)
+        }
+        
+        do {
+            let sessions = try context.fetch(sessionFetchRequest)
+            print("📝 找到 \(sessions.count) 个课程使用了标签 \"\(oldValue)\"")
+            
+            for session in sessions {
+                switch type {
+                case .className:
+                    session.name = newValue
+                case .instructor:
+                    session.instructor = newValue
+                case .location:
+                    session.location = newValue
+                }
+                session.updatedAt = Date()
+            }
+            
+            save()
+            print("✅ 已将 \(sessions.count) 个课程中的 \"\(oldValue)\" 更新为 \"\(newValue)\"")
+        } catch {
+            print("❌ 更新标签值失败: \(error.localizedDescription)")
+        }
+    }
+    
     // MARK: - Delete
     
     /// 删除标签

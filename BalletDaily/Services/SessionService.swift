@@ -69,18 +69,14 @@ class SessionService {
     /// 获取所有课程记录
     /// - Parameter sortByDateDescending: 是否按日期降序排列（默认 true，最新的在前）
     /// - Returns: 课程数组
-    func fetchAllSessions(sortByDateDescending: Bool = true) -> [BalletSession] {
+    /// - Throws: Core Data 错误
+    func fetchAllSessions(sortByDateDescending: Bool = true) throws -> [BalletSession] {
         let fetchRequest: NSFetchRequest<BalletSession> = BalletSession.fetchRequest()
         fetchRequest.sortDescriptors = [
             NSSortDescriptor(keyPath: \BalletSession.sessionDate, ascending: !sortByDateDescending)
         ]
         
-        do {
-            return try context.fetch(fetchRequest)
-        } catch {
-            print("❌ 获取课程列表失败: \(error.localizedDescription)")
-            return []
-        }
+        return try context.fetch(fetchRequest)
     }
     
     /// 按 ID 获取课程
