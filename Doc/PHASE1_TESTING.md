@@ -1,15 +1,26 @@
+# Phase 1 测试指南
+
+## 概述
+
+Phase 1 已完成所有数据层服务，包括：
+- ✅ Core Data 数据模型（5 个实体）
+- ✅ SessionService（课程增删改查）
+- ✅ NoteService（笔记管理）
+- ✅ TagService（常用标签智能建议）
+
+本文档提供测试代码和验证步骤。
+
+---
+
+## 如何测试
+
+### 方法 1：在 ContentView 中添加测试按钮（推荐）
+
+修改 `ContentView.swift`，添加测试功能：
+
+```swift
 import SwiftUI
-internal import CoreData
-
-// MARK: - String Extension for Logging
-
-private extension String {
-    static func * (left: String, right: Int) -> String {
-        return String(repeating: left, count: right)
-    }
-}
-
-// MARK: - ContentView
+import CoreData
 
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -43,20 +54,8 @@ struct ContentView: View {
                         Text("授权 HealthKit")
                     }
                     
-                    Button("📊 测试读取训练记录") {
+                    Button("测试读取数据") {
                         healthKitManager.testFetchWorkouts()
-                    }
-                    
-                    Button("💓 测试心率数据") {
-                        testHeartRateData()
-                    }
-                    
-                    Button("📥 测试导入芭蕾课程") {
-                        testImportWorkouts()
-                    }
-                    
-                    Button("🔄 测试健康数据同步") {
-                        testHealthMetricsSync()
                     }
                 }
             }
@@ -303,188 +302,6 @@ struct ContentView: View {
         
         print("\n🎉 综合测试完成！所有功能正常工作 🎉\n")
     }
-    
-    // MARK: - HealthKit Test Functions
-    
-    func testHeartRateData() {
-        print("\n=== 测试心率数据 ===")
-        
-        Task {
-            do {
-                // 获取最近的训练记录
-                let workouts = try await healthKitManager.fetchRecentWorkouts(limit: 1)
-                
-                guard let workout = workouts.first else {
-                    print("📝 没有找到训练记录")
-                    return
-                }
-                
-                print("✅ 找到训练记录: \(workout.activityType.name)")
-                print("   时间: \(workout.startDate)")
-                print("   时长: \(String(format: "%.1f", workout.duration / 60)) 分钟")
-                
-                // 获取心率统计
-                let heartRateStats = try await healthKitManager.fetchHeartRateStats(for: workout)
-                
-                if let avg = heartRateStats.average {
-                    print("✅ 平均心率: \(String(format: "%.0f", avg)) bpm")
-                }
-                if let min = heartRateStats.min {
-                    print("✅ 最低心率: \(String(format: "%.0f", min)) bpm")
-                }
-                if let max = heartRateStats.max {
-                    print("✅ 最高心率: \(String(format: "%.0f", max)) bpm")
-                }
-                
-                // 获取心率时间序列
-                let samples = try await healthKitManager.fetchHeartRateSamples(
-                    from: workout.startDate,
-                    to: workout.endDate
-                )
-                print("✅ 心率样本数: \(samples.count)")
-                
-                print("=== 心率数据测试完成 ===\n")
-                
-            } catch {
-                print("❌ 测试失败: \(error.localizedDescription)")
-            }
-        }
-    }
-    
-    func testImportWorkouts() {
-        print("\n" + "=" * 60)
-        print("🚀 开始测试导入芭蕾课程")
-        print("=" * 60 + "\n")
-        
-        Task {
-            do {
-                let importService = WorkoutImportService(
-                    context: viewContext,
-                    healthKitManager: healthKitManager
-                )
-                
-                // 扫描最近 365 天（一年）的舞蹈训练
-                let scanDays = 365
-                print("📅 扫描时间范围: 最近 \(scanDays) 天 (约一年)")
-                print("📊 开始查询 HealthKit...")
-                
-                let startTime = Date()
-                let results = try await importService.scanAndImportBalletWorkouts(
-                    days: scanDays,
-                    autoImport: true
-                )
-                let endTime = Date()
-                let duration = endTime.timeIntervalSince(startTime)
-                
-                print("\n" + "-" * 60)
-                print("📊 扫描结果统计")
-                print("-" * 60)
-                print("⏱️  扫描耗时: \(String(format: "%.2f", duration)) 秒")
-                print("📦 总记录数: \(results.count)")
-                
-                let successCount = results.filter { $0.success }.count
-                let skipCount = results.count - successCount
-                
-                print("✅ 新导入: \(successCount) 条")
-                print("⏭️  已存在跳过: \(skipCount) 条")
-                
-                // 显示详细信息
-                if !results.isEmpty {
-                    print("\n" + "-" * 60)
-                    print("📝 详细记录")
-                    print("-" * 60)
-                    
-                    for (index, result) in results.enumerated() {
-                        let status = result.success ? "✅ 新导入" : "⏭️  跳过"
-                        print("\n[\(index + 1)/\(results.count)] \(status)")
-                        print("  📅 时间: \(DateHelper.formatSessionDate(result.workout.startDate))")
-                        print("  ⏱️  时长: \(DateHelper.formatDuration(result.workout.duration))")
-                        print("  🏷️  类型: \(result.workout.activityType.name)")
-                        
-                        if let energy = result.workout.totalEnergyBurned {
-                            print("  🔥 能量: \(String(format: "%.0f", energy)) 千卡")
-                        }
-                        
-                        if let distance = result.workout.totalDistance {
-                            print("  📏 距离: \(String(format: "%.2f", distance / 1000)) 公里")
-                        }
-                    }
-                } else {
-                    print("\n⚠️  没有找到舞蹈类型的训练记录")
-                    print("💡 提示:")
-                    print("   1. 确保已授权 HealthKit 访问")
-                    print("   2. 在健康 App 中添加一些训练记录")
-                    print("   3. 支持的训练类型: 芭蕾、社交舞、有氧舞蹈等")
-                }
-                
-                // 查询并显示当前数据库中的课程数量
-                let sessionService = SessionService(context: viewContext)
-                let allSessions = sessionService.fetchAllSessions()
-                let importedSessions = allSessions.filter { !$0.isManualEntry }
-                
-                print("\n" + "-" * 60)
-                print("💾 当前数据库统计")
-                print("-" * 60)
-                print("📚 总课程数: \(allSessions.count)")
-                print("📥 从 HealthKit 导入: \(importedSessions.count)")
-                print("✍️  手动创建: \(allSessions.count - importedSessions.count)")
-                
-                print("\n" + "=" * 60)
-                print("✅ 导入测试完成!")
-                print("=" * 60 + "\n")
-                
-            } catch {
-                print("\n❌ 测试失败: \(error.localizedDescription)")
-                print("💡 错误详情: \(error)\n")
-            }
-        }
-    }
-    
-    func testHealthMetricsSync() {
-        print("\n=== 测试健康数据同步 ===")
-        
-        let sessionService = SessionService(context: viewContext)
-        
-        // 查找有 HealthKit 关联的课程
-        let sessions = sessionService.fetchAllSessions()
-        let linkedSessions = sessions.filter { $0.healthKitWorkoutUUID != nil }
-        
-        if linkedSessions.isEmpty {
-            print("📝 没有找到关联 HealthKit 的课程")
-            print("💡 提示: 先运行「测试导入芭蕾课程」")
-            return
-        }
-        
-        print("✅ 找到 \(linkedSessions.count) 个关联课程")
-        
-        Task {
-            let metricsService = HealthMetricsService(
-                context: viewContext,
-                healthKitManager: healthKitManager
-            )
-            
-            for session in linkedSessions.prefix(3) {
-                print("\n同步课程: \(session.name ?? "未命名")")
-                print("  日期: \(session.sessionDate ?? Date())")
-                
-                let success = await metricsService.syncHealthData(for: session)
-                
-                if success, let metrics = session.healthMetrics {
-                    print("  ✅ 同步成功")
-                    if metrics.avgHeartRate > 0 {
-                        print("    平均心率: \(String(format: "%.0f", metrics.avgHeartRate)) bpm")
-                    }
-                    if metrics.activeEnergy > 0 {
-                        print("    消耗能量: \(String(format: "%.0f", metrics.activeEnergy)) 千卡")
-                    }
-                } else {
-                    print("  ❌ 同步失败")
-                }
-            }
-            
-            print("\n=== 健康数据同步测试完成 ===\n")
-        }
-    }
 }
 
 private let itemFormatter: DateFormatter = {
@@ -499,3 +316,139 @@ private let itemFormatter: DateFormatter = {
         .environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
         .environmentObject(HealthKitManager())
 }
+```
+
+---
+
+## 测试步骤
+
+### 1. 在 Xcode 中运行
+
+1. 打开 Xcode
+2. 选择模拟器或真机
+3. 点击运行（⌘R）
+4. 等待 App 启动
+
+### 2. 执行测试
+
+**依次点击测试按钮：**
+
+1. **测试 SessionService**
+   - 创建 2 个课程记录
+   - 执行各种查询
+   - 更新课程信息
+   - 查看统计数据
+
+2. **测试 NoteService**
+   - 为课程添加 3 种类型的笔记
+   - 查询和分组笔记
+   - 更新笔记内容
+
+3. **测试 TagService**
+   - 记录多次标签使用
+   - 获取常用标签列表
+   - 搜索标签
+   - 查看标签统计
+
+4. **综合测试**
+   - 完整的工作流程
+   - 创建课程 → 记录标签 → 添加笔记
+   - 验证数据完整性
+
+### 3. 查看控制台输出
+
+在 Xcode 底部的控制台（Console）中查看测试结果。你应该看到类似这样的输出：
+
+```
+=== 测试 SessionService ===
+✅ 创建课程: 芭蕾基础课 - 张老师
+✅ 创建课程: 芭蕾进阶课 - 李老师
+✅ 查询到 2 条课程记录
+✅ 本周有 2 条课程
+✅ 张老师的课程: 1 条
+✅ 更新课程名称
+✅ 本周总时长: 2.5 小时
+✅ 所有老师: 张老师, 李老师
+=== SessionService 测试完成 ===
+```
+
+---
+
+## 预期结果
+
+### ✅ SessionService 测试通过标准
+
+- 能成功创建课程记录
+- 能查询所有课程
+- 能按日期范围查询
+- 能按老师和课程名筛选
+- 能更新课程信息
+- 统计数据正确（总时长、课程数量等）
+
+### ✅ NoteService 测试通过标准
+
+- 能为课程添加不同类型的笔记
+- 能查询课程的所有笔记
+- 能按类型筛选笔记
+- 能按类型分组查询
+- 能更新笔记内容
+- 笔记数量统计正确
+
+### ✅ TagService 测试通过标准
+
+- 能记录标签使用（自动增加计数）
+- 常用标签按使用频率排序
+- 搜索功能支持模糊匹配
+- 能获取标签值列表（用于 UI 自动完成）
+- 统计数据正确
+
+### ✅ 综合测试通过标准
+
+- 完整工作流程无报错
+- 数据关联正确（课程 ↔ 笔记）
+- 标签自动记录功能正常
+- 所有数据持久化成功
+
+---
+
+## 常见问题
+
+### Q1: 控制台没有输出？
+
+**A:** 确保在 Xcode 底部打开了控制台：
+- 快捷键：`⌘ + Shift + Y`
+- 或点击右上角的「Show Debug Area」按钮
+
+### Q2: 点击按钮后 App 崩溃？
+
+**A:** 检查控制台的错误信息：
+- 通常是数据模型不匹配
+- 尝试删除 App 后重新安装
+- 检查 Core Data 模型文件是否正确
+
+### Q3: 测试数据太多了，如何清理？
+
+**A:** 在模拟器中：
+1. 长按 App 图标
+2. 选择「删除 App」
+3. 重新运行即可
+
+或者使用 Xcode：
+- `Product` → `Clean Build Folder` (⌘ + Shift + K)
+- 删除 Derived Data
+
+---
+
+## 下一步
+
+Phase 1 测试通过后，我们将进入 **Phase 2: HealthKit 数据同步**：
+
+- Task 2.1: 实现 HealthKit 数据读取服务
+- Task 2.2: 实现数据同步逻辑
+- Task 2.3: 实现后台同步
+
+---
+
+**完成时间**：2026/1/1  
+**测试状态**：✅ 编译通过，等待用户测试
+
